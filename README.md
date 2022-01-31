@@ -20,4 +20,12 @@ node index.js --port=3500 --peer=3456
 each miner will send handshake requests to existing miners upon joining, and update its peer-list
 
 #### Sending transactions
+run the script ```transactions.js```:
+```cd scripts
+node transactions.js --node=3456 --txn='a transaction, which is basically just a string'
+```
+upon receiving more than three transactions its mempool, a miner will start mining a block.
 
+#### Assumptions etc.
+- every miner is honest, thus no malicious blocks/transactions
+- all transactions are just strings sent to the nodes
