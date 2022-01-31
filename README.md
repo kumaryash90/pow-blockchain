@@ -1,2 +1,2 @@
-# Week-2 Project (ChainShot Bootcamp, Jan 2022)
-## POW Blockchain
+# Week-2 Project - POW Blockchain
+#### (ChainShot Bootcamp, Jan 2022)
