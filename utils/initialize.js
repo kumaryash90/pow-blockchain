@@ -2,8 +2,8 @@ const axios = require('axios');
 const fs = require('fs');
 const configData = require('./config');
 const db = require('./db');
-const { executeBlock } = require('./mine');
-const { generateKeys } = require('./scripts/generate');
+const { executeBlock } = require('../mine');
+const { generateKeys } = require('./generate');
 
 function initialize(peer) {
     if(!fs.existsSync(`./${configData.PORT}/`)) {
@@ -44,9 +44,12 @@ function initialize(peer) {
     }
 }
 
-function sync() {
+async function sync() {
     const blockHeight = db.blockchain.blockHeight();
-    const longestChain = getLongestChain();
+    console.log("blockheight: ", blockHeight);
+    setTimeout(() => {
+        const longestChain = getLongestChain();
+    console.log("longest chain: ", longestChain);
     if(blockHeight < longestChain.blockHeight) {
         axios.get(`http://localhost:${longestChain.peer}/sync`)
         .then(res => {
@@ -56,7 +59,8 @@ function sync() {
                 db.justAdded++;
             });
         });
-    }
+     }
+    }, 2000);
 }
 
 function getLongestChain() {
@@ -67,11 +71,13 @@ function getLongestChain() {
         });
     });
     
-    const max = peerBlockHeight.reduce((prev, current) => {
-        return current.blockHeight > prev.blockHeight ? current : prev
-    }, {});
+    setTimeout(() => {
+            const max = peerBlockHeight.reduce((prev, current) => {
+            return current.blockHeight > prev.blockHeight ? current : prev
+        }, {});
+        return max;
+    }, 1000);
 
-    return max;
 }
 
 function writeBlocksToFile() {

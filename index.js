@@ -4,14 +4,14 @@ const axios = require('axios');
 const { argv, config } = require('yargs');
 const fs = require('fs');
 
-const db  = require('./db');
+const db  = require('./utils/db');
 const miner_util = require('./miner_util');
-const configData = require('./config');
+const configData = require('./utils/config');
 const expReq = require('./expReq');
 const Block = require('./models/Block');
 const { startMining, stopMining, rollback, executeBlock, mine, broadcastBlock } = require('./mine');
-const { initialize, sync } = require('./initialize');
-const { pollAndUpdate } = require('./poller');
+const { initialize, sync } = require('./utils/initialize');
+const { pollAndUpdate } = require('./utils/poller');
 const TARGET_DIFFICULTY = BigInt('0x000'+'f'.repeat(61));
 
 const { port, peer } = argv;

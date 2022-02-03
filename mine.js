@@ -1,8 +1,8 @@
 const SHA256 = require('crypto-js/sha256');
 const axios = require('axios');
 
-const configData = require('./config');
-const db = require('./db');
+const configData = require('./utils/config');
+const db = require('./utils/db');
 const Block = require('./models/Block');
 //const Transaction = require('./models/Transaction');
 //const UTXO = require('./models/UTXO');
