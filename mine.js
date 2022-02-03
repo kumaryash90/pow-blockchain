@@ -6,18 +6,10 @@ const db = require('./db');
 const Block = require('./models/Block');
 //const Transaction = require('./models/Transaction');
 //const UTXO = require('./models/UTXO');
-const TARGET_DIFFICULTY = BigInt('0x00000'+'f'.repeat(59));
+const TARGET_DIFFICULTY = BigInt('0x000'+'f'.repeat(61));
 const BLOCK_REWARD = 10;
 
-let mining = true;
-//let tempBlock = {};
-//let tempTransactions = [];
-let pause = false;
-
 function mine() {
-    if(!mining) return;
-
-    if(db.mempool.length > 3) {
         const latestBlock = new Block();
         // const coinbaseUTXO = new UTXO(PUBLIC_KEY, BLOCK_REWARD);
         // const coinbaseTxn = JSON.stringify(new Transaction([], [coinbaseUTXO]));
@@ -29,34 +21,18 @@ function mine() {
         let blockHash = SHA256(JSON.stringify(latestBlock));
 
         while(BigInt('0x'+blockHash.toString()) > TARGET_DIFFICULTY) {
-            if(mining) {
-                latestBlock.nonce++;
-                blockHash = SHA256(JSON.stringify(latestBlock));
-            } else {
-                console.log('after mining stopped!');
-                return;
-            }
+            latestBlock.nonce++;
+            blockHash = SHA256(JSON.stringify(latestBlock));
+            //console.log(blockHash.toString());
         }
-        setTimeout(() => {
-            if(!mining) return;
-            const tempBlock = JSON.stringify({ latestBlock: latestBlock, blockHash: blockHash.toString() });
-            // tempTransactions = transactions;
-            console.log(db.peers);
-            db.peers.forEach(peer => {
-                axios.post(`http://localhost:${peer}/block`, { block: tempBlock, blockNum: db.justAdded, port: configData.PORT })
-                .then(res => console.log(res.data.msg));
-            });
-            
-            executeBlock(latestBlock);
-            db.blockchain.addBlock(latestBlock, blockHash);
-            db.justAdded++;
-            //console.log("just added: ", db.justAdded);
-            console.log("added block: ", '0x'+blockHash.toString());
-            console.log("block nonce: ", latestBlock.nonce);
-            console.log("total blocks: ", db.blockchain.blockHeight());
-        }, 100);
-    }
-    setTimeout(() => mine(), 5000);
+        const tempBlock = JSON.stringify({ latestBlock: latestBlock, blockHash: blockHash.toString() });
+        axios.post(`http://localhost:${configData.PORT}/mined`, { portId: configData.MINER_PORT, block: tempBlock })
+        .then(res => {
+
+        })
+        .catch(err => {
+
+        });
 }
 
 function rollback(latestBlock, blockHash, blockNum) {
@@ -84,24 +60,47 @@ function rollback(latestBlock, blockHash, blockNum) {
 
 function executeBlock(block) {
     block.transactions.forEach(txn => {
-        console.log(db.mempool);
+        //console.log(db.mempool);
         let index = db.mempool.indexOf(txn);
         //console.log("executing transactions.. index is: ", index);
         if(index > -1) db.mempool.splice(index, 1);
         //txn.execute();
     });
-    console.log("mempool after executing block: ", db.mempool);
-    setTimeout(() => startMining(), 100);
+    //console.log("mempool after executing block: ", db.mempool);
+}
+
+function broadcastBlock(block) {
+    db.peers.forEach(peer => {
+        axios.post(`http://localhost:${peer}/block`, { block: block, blockNum: db.justAdded, port: configData.PORT })
+        .then(res => console.log(res.data.msg));
+    });
 }
 
 function startMining() {
-    mining = true;
-    mine();
+    db.mining = true;
+    axios.get(`http://localhost:${configData.MINER_PORT}/mine`)
+    .then(res => {
+
+    })
+    .catch(err => {
+        db.mining = false;
+    })
 }
 
-function stopMining() {
-    mining = false;
+function stopMining(latestBlock, blockHash) {
     console.log('mining stopped');
+    const newBlock = new Block(latestBlock.timestamp, 
+    latestBlock.prevHash,
+    latestBlock.nonce);
+    newBlock.addTransaction(latestBlock.transactions);
+    executeBlock(newBlock);
+    db.blockchain.addBlock(newBlock, blockHash);
+    db.justAdded++;
+    setTimeout(() => {
+        console.log("executed block: ", latestBlock);
+        console.log("block height: ", db.blockchain.blockHeight());
+        db.mining = false;
+    }, 10);
 }
 
-module.exports = { startMining, stopMining, rollback, executeBlock };
+module.exports = { startMining, stopMining, rollback, executeBlock, mine, broadcastBlock };

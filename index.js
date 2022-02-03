@@ -1,28 +1,52 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const { argv } = require('yargs');
+const { argv, config } = require('yargs');
+const fs = require('fs');
 
-const db = require('./db');
+const db  = require('./db');
+const miner_util = require('./miner_util');
 const configData = require('./config');
 const expReq = require('./expReq');
 const Block = require('./models/Block');
-const { startMining, stopMining, rollback, executeBlock } = require('./mine');
-const TARGET_DIFFICULTY = BigInt('0x00000'+'f'.repeat(59));
+const { startMining, stopMining, rollback, executeBlock, mine, broadcastBlock } = require('./mine');
+const { initialize, sync } = require('./initialize');
+const { pollAndUpdate } = require('./poller');
+const TARGET_DIFFICULTY = BigInt('0x000'+'f'.repeat(61));
 
 const { port, peer } = argv;
 configData.PORT = port;
+configData.MINER_PORT = port * 10;
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+
 app.get('/peers', (req, res) => {
     res.send({ peers: [...db.peers] });
 });
 
-app.get('/sync', (req, res) => {
+app.get('/status', (req, res) => {
+    res.send({ status: true });
+});
 
+app.get('/sync', (req, res) => {
+    res.send({ blocks: [...db.blockchain.blocks]});
+});
+
+app.post('/mined', (req, res) => {
+    const { portId, block } = req.body;
+    const { latestBlock, blockHash } = JSON.parse(block);
+    if(portId === configData.MINER_PORT) {
+        if(db.addMinedBlock && BigInt('0x'+blockHash) <= TARGET_DIFFICULTY) {
+            res.send({ msg: "ok" });
+            broadcastBlock(block);
+            stopMining(latestBlock, blockHash);
+        } else {
+
+        }
+    }
 });
 
 app.post('/handshake', (req, res) => {
@@ -34,54 +58,30 @@ app.post('/handshake', (req, res) => {
 
 app.post('/txn', (req, res) => {
     const { txn, hash } = req.body;
+    res.send({ msg: `received txn: ${txn} `});
     if(db.receivedTxns.indexOf(hash) < 0) {
         db.receivedTxns.push(hash);
         db.mempool.push(txn);
-        console.log(`received txn: ${txn}, ${hash}`);
+        //console.log(`received txn: ${txn}, ${hash}`);
+        if(!db.mining && db.mempool.length > 3) {
+            db.addMinedBlock = true;
+            startMining();
+        }
         db.peers.forEach(p => {
             axios.post(`http://localhost:${p}/txn`, { txn, hash});
         });
     }
-    res.send({ msg: 'received txn '});
+    
 });
 
 app.post('/block', (req, res) => {
-    
-    // const { blockData, blockHash } = JSON.parse(block);
-    // console.log("blockhash is: ", blockHash);
-    // if(BigInt('0x'+blockHash) <= TARGET_DIFFICULTY) {
-    //     stopMining();
-    //     console.log("my life is a lie");
-    //     console.log("block height", db.blockchain.blockHeight());
-    // }
-    // res.send({ msg: "" });
-    stopMining();
     const { block, blockNum, port } = req.body;
     const { latestBlock, blockHash } = JSON.parse(block);
-        if(db.receivedBlocks.indexOf(blockHash) < 0) {
-            db.receivedBlocks.push(blockHash);
-            // db.peers.forEach(peer => {
-            //     if(port !== peer.port) {
-            //         console.log(`forwarding to ${peer.port}`);
-            //         peer.sendBlock(block, blockNum);
-            //     }
-            // });
-        }
-        console.log("received block: ",latestBlock);
-        console.log(`db.justAdded - ${db.justAdded}, blockNum - ${blockNum} `);
-//---
-        const newBlock = new Block(latestBlock.timestamp, 
-                latestBlock.prevHash,
-                latestBlock.nonce);
-                newBlock.addTransaction(latestBlock.transactions);
-            executeBlock(newBlock);
-            db.blockchain.addBlock(newBlock, blockHash);
-            db.justAdded++;
-            console.log("added received block: ", '0x'+blockHash.toString());
-            console.log("block nonce: ", latestBlock.nonce);
-            console.log("total blocks: ", db.blockchain.blockHeight());
-//---
-
+    if(BigInt('0x'+blockHash) <= TARGET_DIFFICULTY) {
+        db.addMinedBlock = false;
+        res.send({ msg: "done" });
+        stopMining(latestBlock, blockHash);
+        console.log("my life is a lie: ", port);
         // if(db.justAdded === blockNum) {
         //     //stopMining()
         //     console.log("my timestamp: ", db.blockchain.blocks[blockNum].block.timestamp);
@@ -89,54 +89,39 @@ app.post('/block', (req, res) => {
         //     db.blockchain.blocks[blockNum].block.timestamp < latestBlock.timestamp ?
         //     console.log('ignore') :
         //     rollback(latestBlock, blockHash, blockNum);
-        // } else if(db.justAdded < blockNum) {
-        //     // const transactions = latestBlock.transactions.map(txn => {
-        //     //     return new Transaction(txn.data);
-        //     // });
-        //     const newBlock = new Block(latestBlock.timestamp, 
-        //         latestBlock.prevHash,
-        //         latestBlock.transactions,
-        //         latestBlock.nonce);
-        //     executeBlock(newBlock);
-        //     db.blockchain.addBlock(newBlock, blockHash);
-        //     db.justAdded++;
-        //     console.log("added received block: ", '0x'+blockHash.toString());
-        //     console.log("block nonce: ", latestBlock.nonce);
-        //     console.log("total blocks: ", db.blockchain.blockHeight());
         // } else {
-        //     console.log("total blocks: ", db.blockchain.blockHeight());
-        //     console.log("blockchain: ", db.blockchain.blocks);
+            
         // }
         
-        res.send({ msg: "done" });
+    } else {
+        res.send({ msg: "block difficulty not met" });
+    }
 });
 
 app.listen(configData.PORT, () => {
     console.log(`listening on ${configData.PORT}`);
 });
 
-if(peer) {
-    axios.post(`http://localhost:${peer}/handshake`, {portId: configData.PORT})
-    .then(res => {
-        db.peers.push(res.data.portId);
-    })
-    .then(() => {
-        axios.get(`http://localhost:${peer}/peers`)
-        .then(res => {
-            const newPeers = [...res.data.peers];
-            console.log("received peers: ", newPeers);
-            newPeers.forEach(p => {
-                if(db.peers.indexOf(p) < 0 && p !== configData.PORT){
-                    axios.post(`http://localhost:${p}/handshake`, {portId: configData.PORT})
-                    .then(res => {
-                             db.peers.push(res.data.portId);
-                    })
-                    .then(() => console.log("updated peers: ", db.peers));
-                }
-            });
-        });
-    });   
-}
+initialize(peer);
+sync();
 
-startMining();
+setInterval(pollAndUpdate, 10,000);
+
+
+/*
+    Miner process
+*/
+
+const app_miner = express();
+app_miner.use(cors());
+app_miner.use(express.json());
+
+app_miner.get('/mine', (req, res) => {
+    res.send({ msg: "mining now" });
+    mine();
+});
+
+app_miner.listen(configData.MINER_PORT, () => {
+    console.log(`miner running on ${configData.MINER_PORT}`);
+});
 

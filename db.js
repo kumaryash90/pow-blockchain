@@ -6,7 +6,9 @@ const db = {
     mempool: [],
     receivedTxns: [],
     receivedBlocks: [],
-    justAdded: -1
+    justAdded: -1,
+    mining: false,
+    addMinedBlock: true
 }
 
 module.exports = db;
